@@ -500,7 +500,7 @@ module Alice_cascade (
             header_A2B[8:5]   = header_B2A_ff[8:5];
             header_A2B[4:0]   = header_B2A_ff[4:0];
         end
-        else if ( write_parity_done && (top_level_error_count==0)&&(parity_type[2])) begin
+        else if ( write_parity_done && (top_level_error_count==0)&&(parity_type[2])) begin //????
             header_A2B[31:28] = `A2B_CORRECT_PARITY;
             header_A2B[27:24] = `PACKET_LENGTH_257;
             header_A2B[23:15] = `RECONCILIATION_REAL_PACKET_DEPTH_WIDTH'b0;
@@ -544,11 +544,19 @@ module Alice_cascade (
         end
     end
 
+    reg [31:0] A_correct_parity_delay;
+    reg [31:0] A_B2A_rd_dout_delay;
+    always @(posedge clk) begin
+            A_correct_parity_delay <= A_correct_parity;
+            A_B2A_rd_dout_delay <= A_B2A_rd_dout;
+    end
+    
     wire [31:0] Acorrect_and_Bask_parity;
     assign Acorrect_and_Bask_parity = A_correct_parity & A_B2A_rd_dout;
 
-    wire [31:0] Acorrect_xor_Bask_parity;
-    assign Acorrect_xor_Bask_parity = A_correct_parity ^ A_B2A_rd_dout;
+    wire [31:0] Acorrect_xor_Bask_parity; //delay by 1 cycle, all combination logic should delay by 1
+//    assign Acorrect_xor_Bask_parity = A_correct_parity ^ A_B2A_rd_dout;
+    assign Acorrect_xor_Bask_parity = A_correct_parity_delay ^ A_B2A_rd_dout_delay;
 
 //****************************** write A2B FIFO ******************************
 
@@ -572,7 +580,8 @@ module Alice_cascade (
 
 
     wire count_error_en;
-    assign count_error_en = ((reply_parity_cnt>0)&&(reply_parity_cnt<(real_depth+1))&&(parity_type[2]))? 1'b1:1'b0;
+//    assign count_error_en = ((reply_parity_cnt>0)&&(reply_parity_cnt<(real_depth+1))&&(parity_type[2]))? 1'b1:1'b0;
+    assign count_error_en = ((reply_parity_cnt>1)&&(reply_parity_cnt<(real_depth+2))&&(parity_type[2]))? 1'b1:1'b0;
 
     always @(posedge clk ) begin
         if (~rst_n) begin
@@ -591,7 +600,8 @@ module Alice_cascade (
 
     wire top_level_parameter_update;
 
-    assign top_level_parameter_update = ((parity_type[2])&&(reply_parity_cnt==(real_depth+2)))? 1'b1:1'b0;
+//    assign top_level_parameter_update = ((parity_type[2])&&(reply_parity_cnt==(real_depth+2)))? 1'b1:1'b0;
+    assign top_level_parameter_update = ((parity_type[2])&&(reply_parity_cnt==(real_depth+3)))? 1'b1:1'b0;
     always @(posedge clk ) begin
         if (~rst_n) begin
             total_error_count <= `FRAME_ERROR_COUNT_WIDTH'b0;
@@ -723,6 +733,7 @@ module cascadeA_fsm (
     localparam REPLY_PARITY         = 4'd4;
     localparam WRITE_DONE           = 4'd5;
     localparam INV_SHUFFLE          = 4'd6;
+    localparam DELAY = 4'd10; // add new FSM for the timing slack of XOR
     localparam FINISH               = 4'd7;
     localparam PARAMETER_OUT        = 4'd8;
     localparam CASCADE_END          = 4'd9;
@@ -736,6 +747,101 @@ module cascadeA_fsm (
         else begin
             cascadeA_state <= next_cascadeA_state;
         end
+    end
+
+    reg frame_parameter_valid_next;
+    always @(posedge clk ) begin
+        if (~rst_n) begin
+            frame_parameter_valid <= 1'b0;
+        end
+        else begin
+            frame_parameter_valid <= frame_parameter_valid_next;
+        end
+    end
+
+    always @(*) begin
+        case (cascadeA_state)
+            CASCADE_IDLE: begin
+                if (start_cascade_error_correction) begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+                else begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+            end
+            LOADKEY: begin
+                if (loadkey_finish) begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+                else begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+            end
+
+
+            IDLE: begin
+                if (A_B2A_rd_valid) begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+                else begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+            end
+            READ_HEADER: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+
+            SET_PARAMETER: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+
+            SHUFFLE: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+
+            REPLY_PARITY: begin
+                if (write_parity_done) begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+                else begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+            end
+
+            WRITE_DONE: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+
+
+            INV_SHUFFLE: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+            
+            DELAY: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+            
+            FINISH: begin
+                if (first_top_level_parity_correct) begin
+                    frame_parameter_valid_next = 1'b1;
+                end
+                else begin
+                    frame_parameter_valid_next = 1'b0;
+                end
+            end
+
+            PARAMETER_OUT: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+
+            CASCADE_END: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+
+            default: begin
+                frame_parameter_valid_next = 1'b0;
+            end
+        endcase
     end
 
     always @(posedge clk ) begin
@@ -764,7 +870,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
                 else begin
                     next_cascadeA_state = CASCADE_IDLE;
@@ -774,7 +880,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
             end
             LOADKEY: begin
@@ -786,7 +892,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
                 else begin
                     next_cascadeA_state = LOADKEY;
@@ -796,7 +902,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
             end
 
@@ -810,7 +916,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
                 else begin
                     next_cascadeA_state = IDLE;
@@ -820,7 +926,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
             end
             READ_HEADER: begin
@@ -831,7 +937,7 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
 
             SET_PARAMETER: begin
@@ -842,7 +948,7 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
 
             SHUFFLE: begin
@@ -853,7 +959,7 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
 
             REPLY_PARITY: begin
@@ -865,7 +971,7 @@ module cascadeA_fsm (
                     reply_en = 1'b1;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
                 else begin
                     next_cascadeA_state = REPLY_PARITY;
@@ -875,7 +981,7 @@ module cascadeA_fsm (
                     reply_en = 1'b1;
                     reset_parameter = 1'b0;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
             end
 
@@ -887,19 +993,30 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
 
 
             INV_SHUFFLE: begin
-                next_cascadeA_state = FINISH;
+                next_cascadeA_state = DELAY;
                 read_header_en = 1'b0;
                 shuffle_en = 1'b0;
                 inv_shuffle_en = 1'b1;
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
+            end
+
+            DELAY: begin
+                next_cascadeA_state = FINISH;
+                read_header_en = 1'b0;
+                shuffle_en = 1'b0;
+                inv_shuffle_en = 1'b0;
+                reply_en = 1'b0;
+                reset_parameter = 1'b0;
+                cascade_finish = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
 
             FINISH: begin
@@ -911,7 +1028,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b1;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
                 else begin
                     next_cascadeA_state = IDLE;
@@ -921,7 +1038,7 @@ module cascadeA_fsm (
                     reply_en = 1'b0;
                     reset_parameter = 1'b1;
                     cascade_finish = 1'b0;
-                    frame_parameter_valid = 1'b0;
+//                    frame_parameter_valid = 1'b0;
                 end
             end
 
@@ -934,7 +1051,7 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b1;
+//                frame_parameter_valid = 1'b1;
             end
 
             CASCADE_END: begin
@@ -945,7 +1062,7 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b1;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
 
 
@@ -957,7 +1074,7 @@ module cascadeA_fsm (
                 reply_en = 1'b0;
                 reset_parameter = 1'b0;
                 cascade_finish = 1'b0;
-                frame_parameter_valid = 1'b0;
+//                frame_parameter_valid = 1'b0;
             end
         endcase
     end
