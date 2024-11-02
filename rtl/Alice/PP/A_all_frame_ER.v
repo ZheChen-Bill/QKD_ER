@@ -68,7 +68,7 @@ module all_frame_A_ER (
     output wire [63:0] reconciledkey_dina,
     output wire reconciledkey_ena,                       //1'b1
     output wire reconciledkey_rsta,                      //1'b0
-    output wire reconciledkey_wea                    
+    output wire [3:0] reconciledkey_wea                    
 );
 
 
