@@ -68,7 +68,7 @@ module single_frame_A_ER (
     output reg [63:0] reconciledkey_dina,
     output wire reconciledkey_ena,                       //1'b1
     output wire reconciledkey_rsta,                      //1'b0
-    output reg reconciledkey_wea,                    
+    output reg [3:0] reconciledkey_wea,                    
     //input [63:0] reconciledkey_dina,
 
     output wire [`FRAME_LEAKED_INFO_WIDTH-1:0] er_leaked_info,
@@ -337,14 +337,6 @@ module single_frame_A_ER (
         .corrected_key(Acorrected_key)                        // Corrected key output
     );
 //****************************** Alice cascade instantiation ******************************
-
-
-
-
-
-
-
-
 //****************************** EV instantiation ******************************
     wire [`EV_KEY_LENGTH-1:0] A_EV_corrected_key;
     assign A_EV_corrected_key = Acorrected_key;
@@ -529,17 +521,17 @@ module single_frame_A_ER (
         if (~rst_n) begin
             reconciledkey_addra <= {15{1'b1}};
             reconciledkey_dina <= 64'b0;
-            reconciledkey_wea <= 1'b0;
+            reconciledkey_wea <= 4'b0000;
         end
         else if ((write_reconciled_key_cnt>0)&&(write_reconciled_key_cnt<(`RECONCILED_KEY_64_DEPTH+1))) begin
             reconciledkey_addra <= reconciledkey_addra + 1;
             reconciledkey_dina <= Acorrected_key[(((`RECONCILED_KEY_64_DEPTH)-write_reconciled_key_cnt)<<6) +: 64];
-            reconciledkey_wea <= 1'b1;
+            reconciledkey_wea <= 4'b1111;
         end
         else begin
             reconciledkey_addra <= reconciledkey_addra;
             reconciledkey_dina <= 64'b0;
-            reconciledkey_wea <= 1'b0;
+            reconciledkey_wea <= 4'b0000;
         end
     end
 
