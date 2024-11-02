@@ -9,7 +9,9 @@ module top_A_ER (
     input rst_n,                            //reset
 
     input start_A_ER,             //start all frame error reconciliation
-
+    input start_TX,
+    
+    output wait_TX,
     output finish_A_ER,             //finish all frame error reconciliation
 
     input sifted_key_addr_index,                            //address index
@@ -68,7 +70,7 @@ module top_A_ER (
     output wire [63:0] reconciledkey_dina,
     output wire reconciledkey_ena,                       //1'b1
     output wire reconciledkey_rsta,                      //1'b0
-    output wire reconciledkey_wea                    
+    output wire [3:0] reconciledkey_wea                    
 );
 
 
@@ -112,9 +114,11 @@ module top_A_ER (
         .rst_n(rst_n),                      // Reset signal
 
         .start_A_ER(start_A_ER),            // Input signal to start A's error reconciliation
+        .start_TX(start_TX),                   // control signal for both board ready
         .send_EVrandombit_finish(send_EVrandombit_finish), // Input signal indicating finish of sending EV random bits
         .finish_all_frame_er(finish_all_frame_er),         // Input signal indicating all frames error reconciliation is finished
 
+        .wait_TX(wait_TX),                   // indicate the FSM state
         .send_EVrandombit_en(send_EVrandombit_en),     // Output signal to enable sending EV random bits
         .start_all_frame_er(start_all_frame_er),       // Output signal to start all frame error reconciliation
         .reset_er_parameter(reset_er_parameter),       // Output signal to reset error reconciliation parameters
@@ -137,7 +141,7 @@ module top_A_ER (
     // wire clk;
     // wire rst_n;
     // wire send_randombit_en;
-    // wire A_A2B_empty;
+    // wire A_A2B_empty; 
     wire round_count_finish;
     wire last_round;
 
@@ -151,8 +155,6 @@ module top_A_ER (
     wire [19:0] randombit_round_addr_offset;
     wire [7:0] randombit_round;
     wire [3:0] randombit_state;
-
-
 
     send_EVrandombit_fsm EVrandombit_fsm (
         .clk(clk),                                 // Clock signal
@@ -173,9 +175,6 @@ module top_A_ER (
         .randombit_round(randombit_round),         // Current round of random bit
         .randombit_state(randombit_state)          // Current state of the FSM
     );
-
-
-
 
 
     // output wire [13:0]PArandombit_addrb,    //0~16383
@@ -568,9 +567,11 @@ module A_er_fsm (
     input rst_n,
 
     input start_A_ER,
+    input start_TX,
     input send_EVrandombit_finish,
     input finish_all_frame_er,
 
+    output reg wait_TX,
     output reg send_EVrandombit_en,
     output reg start_all_frame_er,
     output reg reset_er_parameter,
@@ -579,15 +580,16 @@ module A_er_fsm (
     output reg [3:0] A_er_state
 );
 
-    localparam ER_IDLE                  = 4'd0;
-    localparam ER_START                 = 4'd1;
-    localparam SEND_EVRANDOMBIT         = 4'd2;
-    localparam EVRANDOMBIT_END          = 4'd3;
-    localparam START_ALL_FRAME_ER       = 4'd4;
-    localparam ALL_FRAME_ER_BUSY        = 4'd5;
-    localparam ALL_FRAME_ER_END         = 4'd6;
-    localparam RESET_ER_PARAMETER       = 4'd7;
-    localparam ER_END                   = 4'd8;
+    localparam ER_IDLE                    = 4'd0;
+    localparam ER_WAIT_START_TX   = 4'd1;
+    localparam ER_START                 = 4'd2;
+    localparam SEND_EVRANDOMBIT         = 4'd3;
+    localparam EVRANDOMBIT_END          = 4'd4;
+    localparam START_ALL_FRAME_ER       = 4'd5;
+    localparam ALL_FRAME_ER_BUSY        = 4'd6;
+    localparam ALL_FRAME_ER_END         = 4'd7;
+    localparam RESET_ER_PARAMETER       = 4'd8;
+    localparam ER_END                   = 4'd9;
 
 
     assign ER_busy = (A_er_state==ALL_FRAME_ER_BUSY);
@@ -609,11 +611,12 @@ module A_er_fsm (
         case (A_er_state)
             ER_IDLE: begin
                 if (start_A_ER) begin
-                    next_A_er_state = ER_START;
+                    next_A_er_state = ER_WAIT_START_TX;
                     send_EVrandombit_en = 1'b0;
                     start_all_frame_er = 1'b0;
                     reset_er_parameter = 1'b0;
                     finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
                 end
                 else begin
                     next_A_er_state = ER_IDLE;
@@ -621,6 +624,26 @@ module A_er_fsm (
                     start_all_frame_er = 1'b0;
                     reset_er_parameter = 1'b0;
                     finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
+                end
+            end
+
+            ER_WAIT_START_TX: begin
+                if (start_TX) begin
+                    next_A_er_state = ER_START;
+                    send_EVrandombit_en = 1'b0;
+                    start_all_frame_er = 1'b0;
+                    reset_er_parameter = 1'b0;
+                    finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
+                end
+                else begin
+                    next_A_er_state = ER_WAIT_START_TX;
+                    send_EVrandombit_en = 1'b0;
+                    start_all_frame_er = 1'b0;
+                    reset_er_parameter = 1'b0;
+                    finish_A_ER = 1'b0;
+                    wait_TX = 1'b1;
                 end
             end
 
@@ -630,6 +653,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b0;
                 reset_er_parameter = 1'b0;
                 finish_A_ER = 1'b0;
+                wait_TX = 1'b0;
             end
 
             SEND_EVRANDOMBIT: begin
@@ -639,6 +663,7 @@ module A_er_fsm (
                     start_all_frame_er = 1'b0;
                     reset_er_parameter = 1'b0;
                     finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
                 end
                 else begin
                     next_A_er_state = SEND_EVRANDOMBIT;
@@ -646,6 +671,7 @@ module A_er_fsm (
                     start_all_frame_er = 1'b0;
                     reset_er_parameter = 1'b0;
                     finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
                 end
             end
 
@@ -655,6 +681,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b0;
                 reset_er_parameter = 1'b0;
                 finish_A_ER = 1'b0;
+                wait_TX = 1'b0;
             end
 
             START_ALL_FRAME_ER: begin
@@ -663,6 +690,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b1;
                 reset_er_parameter = 1'b0;
                 finish_A_ER = 1'b0;
+                wait_TX = 1'b0;
             end
 
             ALL_FRAME_ER_BUSY: begin
@@ -672,6 +700,7 @@ module A_er_fsm (
                     start_all_frame_er = 1'b0;
                     reset_er_parameter = 1'b0;
                     finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
                 end
                 else begin
                     next_A_er_state = ALL_FRAME_ER_BUSY;
@@ -679,6 +708,7 @@ module A_er_fsm (
                     start_all_frame_er = 1'b0;
                     reset_er_parameter = 1'b0;
                     finish_A_ER = 1'b0;
+                    wait_TX = 1'b0;
                 end
             end
 
@@ -688,6 +718,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b0;
                 reset_er_parameter = 1'b0;
                 finish_A_ER = 1'b0;
+                wait_TX = 1'b0;
             end
 
             RESET_ER_PARAMETER: begin
@@ -696,6 +727,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b0;
                 reset_er_parameter = 1'b1;
                 finish_A_ER = 1'b0;
+                wait_TX = 1'b0;
             end
 
             ER_END: begin
@@ -704,6 +736,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b0;
                 reset_er_parameter = 1'b0;
                 finish_A_ER = 1'b1;
+                wait_TX = 1'b0;
             end
 
             default: begin
@@ -712,6 +745,7 @@ module A_er_fsm (
                 start_all_frame_er = 1'b0;
                 reset_er_parameter = 1'b0;
                 finish_A_ER = 1'b0;
+                wait_TX = 1'b0;
             end
         endcase
     end
